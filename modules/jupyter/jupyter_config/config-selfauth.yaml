@@ -155,6 +155,37 @@ singleuser:
                       bucketName: ${gcs_bucket}
                       mountOptions: "uid=1000,gid=100,o=noexec,implicit-dirs,dir-mode=777,file-mode=777,only-dir=notebooks/{username}"
       default: true
+    - display_name: "GPU (L4)"
+      description: "Creates GPU VMs (L4) as the compute for notebook execution."
+      profile_options:
+        storage:
+          display_name: "Storage"
+          choices:
+            DefaultStorage:
+              display_name: "Local (SSD)"
+              kubespawner_override:
+                default: true
+            GCSFuse:
+              display_name: "GCSFuse"
+              kubespawner_override:
+                volume_mounts:
+                - name: gcs-fuse-csi-ephemeral
+                  mountPath: /home/jovyan
+                volumes:
+                - name: gcs-fuse-csi-ephemeral
+                  csi:
+                    driver: gcsfuse.csi.storage.gke.io
+                    volumeAttributes:
+                      bucketName: ${gcs_bucket}
+                      mountOptions: "uid=1000,gid=100,o=noexec,implicit-dirs,dir-mode=777,file-mode=777,only-dir=notebooks/{username}"
+      kubespawner_override:
+        image: ${notebook_image}:${notebook_image_tag}
+        extra_resource_limits:
+          nvidia.com/gpu: "1"
+        extra_resource_guarantees:
+          nvidia.com/gpu: "1"
+        node_selector:
+          cloud.google.com/gke-accelerator: "nvidia-l4"
   cmd: null
   cloudMetadata:
     blockWithIptables: false
