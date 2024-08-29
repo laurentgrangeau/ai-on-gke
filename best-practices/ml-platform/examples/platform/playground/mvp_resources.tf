@@ -13,11 +13,16 @@
 # limitations under the License.
 
 locals {
-  bucket_data_name           = "${data.google_project.environment.project_id}-${var.environment_name}-data"
-  bucket_model_name          = "${data.google_project.environment.project_id}-${var.environment_name}-model"
-  data_preparation_ksa       = "data-preparation"
-  data_processing_ksa        = "data-processing"
-  fine_tuning_ksa            = "fine-tuning"
+  bucket_data_name     = "${data.google_project.environment.project_id}-${var.environment_name}-data"
+  bucket_model_name    = "${data.google_project.environment.project_id}-${var.environment_name}-model"
+  data_preparation_ksa = "data-preparation"
+  data_processing_ksa  = "data-processing"
+  fine_tuning_ksa      = "fine-tuning"
+  gsa_build_account_id = "${var.environment_name}-${var.namespace}-build"
+  gsa_build_email      = google_service_account.build.email
+  gsa_build_roles = [
+    "roles/logging.logWriter",
+  ]
   model_evaluation_ksa       = "model-evaluation"
   repo_container_images_id   = var.environment_name
   repo_container_images_url  = "${google_artifact_registry_repository.container_images.location}-docker.pkg.dev/${google_artifact_registry_repository.container_images.project}/${local.repo_container_images_id}"
@@ -26,7 +31,6 @@ locals {
 
 # SERVICES
 ###############################################################################
-
 resource "google_project_service" "aiplatform_googleapis_com" {
   disable_dependent_services = false
   disable_on_destroy         = false
@@ -60,7 +64,11 @@ resource "google_artifact_registry_repository" "container_images" {
 # GCS
 ###############################################################################
 resource "google_storage_bucket" "data" {
-  force_destroy               = false
+  depends_on = [
+    google_container_cluster.mlp
+  ]
+
+  force_destroy               = true
   location                    = var.subnet_01_region
   name                        = local.bucket_data_name
   project                     = data.google_project.environment.project_id
@@ -68,11 +76,46 @@ resource "google_storage_bucket" "data" {
 }
 
 resource "google_storage_bucket" "model" {
-  force_destroy               = false
+  depends_on = [
+    google_container_cluster.mlp
+  ]
+
+  force_destroy               = true
   location                    = var.subnet_01_region
   name                        = local.bucket_model_name
   project                     = data.google_project.environment.project_id
   uniform_bucket_level_access = true
+}
+
+# GSA
+###############################################################################
+resource "google_service_account" "build" {
+  project      = data.google_project.environment.project_id
+  account_id   = local.gsa_build_account_id
+  display_name = "${local.gsa_build_account_id} Service Account"
+  description  = "Terraform-managed service account for ${local.gsa_build_account_id}"
+}
+
+resource "google_project_iam_member" "gsa_build" {
+  for_each = toset(local.gsa_build_roles)
+
+  project = data.google_project.environment.project_id
+  member  = google_service_account.build.member
+  role    = each.value
+}
+
+resource "google_artifact_registry_repository_iam_member" "container_images_gsa_build_artifactregistry_writer" {
+  location   = google_artifact_registry_repository.container_images.location
+  member     = google_service_account.build.member
+  project    = google_artifact_registry_repository.container_images.project
+  repository = google_artifact_registry_repository.container_images.name
+  role       = "roles/artifactregistry.writer"
+}
+
+resource "google_storage_bucket_iam_member" "cloudbuild_bucket_gsa_build_storage_object_viewer" {
+  bucket = "${data.google_project.environment.project_id}_cloudbuild"
+  member = google_service_account.build.member
+  role   = "roles/storage.objectViewer"
 }
 
 # KSA
@@ -152,6 +195,10 @@ resource "google_storage_bucket_iam_member" "data_bucket_data_preparation_storag
 }
 
 resource "google_project_iam_member" "data_preparation_aiplatform_user" {
+  depends_on = [
+    google_container_cluster.mlp
+  ]
+
   project = data.google_project.environment.project_id
   member  = "${local.wi_member_principal_prefix}/${local.data_preparation_ksa}"
   role    = "roles/aiplatform.user"
@@ -190,6 +237,9 @@ resource "google_storage_bucket_iam_member" "model_bucket_model_evaluation_stora
 output "environment_configuration" {
   value = <<EOT
 MLP_AR_REPO_URL="${local.repo_container_images_url}"
+MLP_BUILD_GSA="${local.gsa_build_email}"
+MLP_CLUSTER_KUBERNETES_HOST="${local.connect_gateway_host_url}"
+MLP_CLUSTER_LOCATION="${google_container_cluster.mlp.location}"
 MLP_CLUSTER_NAME="${local.cluster_name}"
 MLP_DATA_BUCKET="${local.bucket_data_name}"
 MLP_DATA_PREPARATION_IMAGE="${local.repo_container_images_url}/data-preparation:1.0.0"

@@ -41,7 +41,8 @@ Depending on the infrastructure you provisioned, the data preparation step takes
 
   ```
   cd src
-  gcloud builds submit --config cloudbuild.yaml \
+  sed -i -e "s|^serviceAccount:.*|serviceAccount: projects/${MLP_PROJECT_ID}/serviceAccounts/${MLP_BUILD_GSA}|" cloudbuild.yaml
+  gcloud beta builds submit --config cloudbuild.yaml \
   --project ${MLP_PROJECT_ID} \
   --substitutions _DESTINATION=${MLP_DATA_PREPARATION_IMAGE}
   cd ..
@@ -96,6 +97,7 @@ Depending on the infrastructure you provisioned, the data preparation step takes
   ```sh
   gcloud storage ls gs://${MLP_DATA_BUCKET}/${DATASET_OUTPUT_PATH}
   ```
+
 ## Observability
 
 By default, both GKE and the workloads you run expose metrics and logs in Google Cloud's Observability suite. You can view this information from the Cloud Observability console or the GKE Observability page.
@@ -129,13 +131,12 @@ resource.labels.namespace_name="ml-team"
 jsonPayload.message = (
 "***Job Start***" OR
 "Configure signal handlers" OR
-"Prepare context for Gemini Flash's prompt" OR 
+"Prepare context for Gemini Flash's prompt" OR
 "Generate Q & A according" OR
 "Generate Prompts for Gemma IT model" OR
 "Upload prepared dataset into GCS" OR
 "***Job End***")
 ```
-
 
 As another example, if you want to know how many prompts are generated in a specific time window, you can do something like the following:
 
